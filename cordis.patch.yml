@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-wsl-systemd
+      name: dsh-wsl-systemd
+      config:
+        enabled: true
+        timeoutMs: 15000
