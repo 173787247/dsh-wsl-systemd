@@ -19,10 +19,10 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register({
     name: "systemd_status",
-    description: "Whether systemctl is available; show XDG_RUNTIME_DIR hint.",
+    description: "Whether systemctl/journalctl are available; XDG_RUNTIME_DIR + user bus probe.",
     parameters: { type: "object", additionalProperties: false, properties: {} },
-    output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => [{ type: "text", text: JSON.stringify(v) }] },
-    timeoutMs: 5_000,
+    output: { schema: { type: "object", additionalProperties: true }, render: (_a, v) => [{ type: "text", text: JSON.stringify(v, null, 2) }] },
+    timeoutMs: 8_000,
     isConcurrencySafe: () => true,
     async execute() {
       return systemdStatus();
@@ -78,24 +78,49 @@ export function apply(ctx, config = {}) {
     presentResult: (_a, r) => ({ card: "generic", title: "user show", content: r.content }),
   });
 
+  async function executeJournal(args) {
+    return userJournal({ unit: args.unit, lines: args.lines, timeoutMs });
+  }
+
+  const journalParams = {
+    type: "object",
+    additionalProperties: false,
+    required: ["unit"],
+    properties: { unit: { type: "string" }, lines: { type: "number" } },
+  };
+  const journalOutput = {
+    schema: { type: "object", additionalProperties: true },
+    render: (_a, v) => [{ type: "text", text: v.ok === false ? v.error : v.output }],
+  };
+
   ctx.tools.register({
-    name: "systemd_user_journal",
-    description: "journalctl --user -u <unit> recent lines (capped).",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["unit"],
-      properties: { unit: { type: "string" }, lines: { type: "number" } },
-    },
-    output: {
-      schema: { type: "object", additionalProperties: true },
-      render: (_a, v) => [{ type: "text", text: v.ok === false ? v.error : v.output }],
-    },
+    name: "journal_tail",
+    description: "journalctl --user -u <unit> recent lines (capped). Read-only.",
+    parameters: journalParams,
+    output: journalOutput,
     timeoutMs,
     isConcurrencySafe: () => true,
     async execute(args) {
       try {
-        return await userJournal({ unit: args.unit, lines: args.lines, timeoutMs });
+        return await executeJournal(args);
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    presentCall: () => ({ card: "generic", title: "journal tail" }),
+    presentResult: (_a, r) => ({ card: "generic", title: "journal tail", content: r.content }),
+  });
+
+  ctx.tools.register({
+    name: "systemd_user_journal",
+    description: "Alias of journal_tail (read-only).",
+    parameters: journalParams,
+    output: journalOutput,
+    timeoutMs,
+    isConcurrencySafe: () => true,
+    async execute(args) {
+      try {
+        return await executeJournal(args);
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
